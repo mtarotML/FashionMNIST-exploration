@@ -1,55 +1,69 @@
 import streamlit as st
 import numpy as np
-from sklearn.datasets import fetch_openml
+from sklearn.cluster import KMeans
 import gc
+import psutil
+import os
+import plotly.express as px
+import pandas as pd
+pd.options.plotting.backend = "plotly"
 
-# --- PAGE CONFIG ---
-st.set_page_config(page_title="FashionMNIST Viewer", layout="wide")
 
-# -----------------------------
-# DATA LOADING
-# -----------------------------
-@st.cache_data(show_spinner="Fetching data from OpenML...")
-def load_fashion_mnist(n_samples=50):
-    # Fetch data
-    dataset = fetch_openml("Fashion-MNIST", version=1, as_frame=False, parser="auto")
-    
-    # Pick random indices
-    indices = np.random.choice(dataset.data.shape[0], n_samples, replace=False)
-    
-    # Process images: (Samples, 784) -> (Samples, 28, 28)
-    images = dataset.data[indices].reshape(-1, 28, 28) / 255.0
-    labels = dataset.target[indices]
-    
-    del dataset
-    gc.collect()
-    return images, labels
+st.set_page_config(page_title="FashionMNIST Viewer", 
+                   layout="wide",
+                   page_icon = "logo.png")
 
-# --- UI ---
-st.title("Fashion-MNIST Data Fetcher")
-st.markdown("A simple tool to pull random samples from the Fashion-MNIST dataset.")
+# st.sidebar.write(psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024))
 
-# Sidebar controls
-num_to_show = st.sidebar.slider("Number of images to fetch", 5, 100, 20)
+@st.cache_data(show_spinner="Loading data...")
+def load_local_data():
+    try:
+        x_train = np.load('f_mnist_x_train.npy')
+        y_train = np.load('f_mnist_y_train.npy')     
+        return x_train, y_train
+    except FileNotFoundError:
+        print("Error: Local files not found.")
 
-# Load data
-images, labels = load_fashion_mnist(num_to_show)
 
-# --- DISPLAY GRID ---
-st.subheader(f"Displaying {num_to_show} random items")
+X_train, y_train= load_local_data()[0].reshape(-1,784),load_local_data()[1]
 
-# Define Fashion MNIST label map for readability
-label_map = {
-    '0': 'T-shirt/top', '1': 'Trouser', '2': 'Pullover', '3': 'Dress', '4': 'Coat',
-    '5': 'Sandal', '6': 'Shirt', '7': 'Sneaker', '8': 'Bag', '9': 'Ankle boot'
+f_mnist_labels = {
+    0: "T-shirt/top",
+    1: "Trouser",
+    2: "Pullover",
+    3: "Dress",
+    4: "Coat",
+    5: "Sandal",
+    6: "Shirt",
+    7: "Sneaker",
+    8: "Bag",
+    9: "Ankle boot"
 }
 
-# Create a grid using columns
-cols = st.columns(5) 
-for i, (img, lbl) in enumerate(zip(images, labels)):
-    with cols[i % 5]:
-        # Use st.image with the numpy array
-        st.image(img, caption=f"{label_map[lbl]} (ID:{lbl})", use_container_width=True)
 
-st.divider()
+
+@st.cache_data()
+def train_model_clustering(X_train):
+    model = KMeans(10)
+    pred = model.fit_predict(X_train)
+    return pred
+
+pred = train_model_clustering(X_train)
+
+clusters = pd.DataFrame({"label" : y_train,
+                         "cluster" : pred})
+
+clusters["label"] = clusters["label"].apply(lambda x : f_mnist_labels[x])
+
+repartition = clusters.groupby("label")["cluster"].value_counts().reset_index()
+
+
+###display
+
+st.title("Fashion-MNIST clustering")
+
+st.markdown("A simple tool to visualize clustering performance on Fashion-MNIST dataset.")
+
+st.write(repartition.plot.bar(x = "cluster" ,y = "count",color = "label"))
+
 st.info("Data loaded and normalized. Ready for further processing.")
